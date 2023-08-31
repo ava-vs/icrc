@@ -4,6 +4,8 @@ import Array "mo:base/Array";
 import Nat "mo:base/Nat";
 import Hash "mo:base/Hash";
 import Nat32 "mo:base/Nat32";
+import Types "./Types";
+
 
 module ICRC7 = {
 
@@ -11,16 +13,17 @@ module ICRC7 = {
 
   public type TokenId = Nat;
 
-  public type Metadata = {
-    #Nat : Nat;
-    #Int : Int;
-    #Text : Text;
-    #Blob : Blob;
-  };
+  // public type Metadata = {
+  //   #Nat : Nat;
+  //   #Int : Int;
+  //   #Text : Text;
+  //   #Blob : Blob;
+  // };
+  type MetadataDesc = Types.MetadataDesc;
 
   public type Token = {
     id : TokenId;
-    metadata : Metadata;
+    metadata : MetadataDesc;
     owner : AccountId;
   };
 
@@ -41,7 +44,7 @@ module ICRC7 = {
     icrc7_supply_cap: ?Nat;
   };
 
-    public type TransferArgs = {
+  public type TransferArgs = {
     from: ?Account;
     to: Account;
     token_ids: [Nat];
@@ -72,7 +75,7 @@ module ICRC7 = {
     #TemporarilyUnavailable;
     #GenericError : { error_code: Nat; message: Text };
   };
-  
+
 };
 
 
