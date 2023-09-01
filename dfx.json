@@ -1,7 +1,7 @@
 {
   "canisters": {
     "icrc7_backend": {
-      "main": "src/icrc7_backend/main.mo",
+      "main": "src/icrc7_backend/ICRCImpl.mo",
       "type": "motoko"
     }
   },

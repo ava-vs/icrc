@@ -13,12 +13,6 @@ module ICRC7 = {
 
   public type TokenId = Nat;
 
-  // public type Metadata = {
-  //   #Nat : Nat;
-  //   #Int : Int;
-  //   #Text : Text;
-  //   #Blob : Blob;
-  // };
   type MetadataDesc = Types.MetadataDesc;
 
   public type Token = {

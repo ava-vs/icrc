@@ -10,12 +10,15 @@ import Array "mo:base/Array";
 import List "mo:base/List";
 import Types "./Types";
 import Nat64 "mo:base/Nat64";
+import HashMap "mo:base/HashMap";
+import Iter "mo:base/Iter";
+import Time "mo:base/Time";
 
 actor IC_ICRC7 {
     type Token = ICRC.Token;
     type TokenId = ICRC.TokenId;
     type AccountId = ICRC.AccountId;
-    type Metadata = Types.MetadataDesc;
+    type Metadata = MetadataDesc;
     public type Result<S, E> = {
     #Ok : S;
     #Err : E;
@@ -40,15 +43,17 @@ actor IC_ICRC7 {
 
   public type MetadataDesc = [MetadataPart];
 
-  public type MetadataPart = {
-    purpose: MetadataPurpose;
-    key_val_data: [MetadataKeyVal];
-    data: Blob;
+  public type MetadataLog = {
+    timestamp: Time.Time;
+    metadata: MetadataDesc; 
   };
 
-  public type MetadataPurpose = {
-    #Preview;
-    #Rendered;
+  public type MetadataHistory = [MetadataLog];
+
+  public type MetadataPart = {
+    // purpose: MetadataPurpose;
+    key_val_data: [MetadataKeyVal];
+    // data: Blob;
   };
   
   public type MetadataKeyVal = {
@@ -57,14 +62,6 @@ actor IC_ICRC7 {
   };
 
   public type MetadataVal = {
-    #TextContent : Text;
-    #BlobContent : Blob;
-    #NatContent : Nat;
-    #Nat8Content: Nat8;
-    #Nat16Content: Nat16;
-    #Nat32Content: Nat32;
-    #Nat64Content: Nat64;
-    #IntContent: Int;
     #LinkContent: Text;
   };
 
@@ -72,27 +69,41 @@ actor IC_ICRC7 {
 
   public type MintReceiptPart = {
     token_id: TokenId;
-    id: Nat;
+    transactionId: Nat;
   };
 
   public type TxReceipt = Result<Nat, ApiError>;
   
   public type TransactionId = Nat;
 
+  type DNft = {
+    owner: Principal;
+    tokenId: TokenId;
+    metadata: MetadataDesc;
+  };
+
     // state
     let equalTokenId = func (a: TokenId, b: TokenId): Bool { a == b };
     let hashTokenId = func (id: TokenId): Hash.Hash { Nat32.fromNat(id) };
 
     stable var transactionId: TransactionId = 0;
-    stable var allNfts = List.nil<Types.Nft>();
+
     stable var allCollections = List.nil<Types.Collection>();
 
-    //TODO fill tokenEntries with allNfts
-    // var tokenEntries = TrieMap.TrieMap<TokenId, Token>(Nat.equal, hashTokenId);
+    stable var nftEntries : [(Principal, TokenId)] = [];
 
-    // let ownerToTokens = TrieMap.TrieMap<AccountId, Buffer.Buffer<TokenId>>(Principal.equal, Principal.hash);
+    var tokenEntries = TrieMap.TrieMap<Principal, TokenId>(Principal.equal, Principal.hash);
+
+    stable var metadataEntries : [(TokenId, Metadata)] = [];
+
+    var metadataMap = HashMap.fromIter<TokenId, Metadata>(metadataEntries.vals(), 1, Nat.equal, hashTokenId);
+    
+    stable var historyEntries : [(TokenId, MetadataHistory)] = [];
+
+    var historyMap = HashMap.HashMap<TokenId, Buffer.Buffer<MetadataLog>>(0, Nat.equal, hashTokenId);
 
     let GLOBAL_TOKEN_SYMBOL = "IC7D";
+
     // implement ICRC-7 methods
 
     public func createCollection(to: AccountId, metadata: ICRC.Icrc7_collection_metadata) : async Types.Collection {
@@ -121,129 +132,127 @@ actor IC_ICRC7 {
     };
 
     public func mint(to: AccountId, metadata: Metadata) : async Types.MintReceipt {
-      let newId : TokenId = List.size(allNfts);
+      let newId : TokenId = tokenEntries.size();
       let nft: Types.Nft = {
         owner = to;
-        id = Nat64.fromNat(newId);
+        tokenId = Nat64.fromNat(newId);
         metadata = metadata;
         tokenType = GLOBAL_TOKEN_SYMBOL;
       };
-      allNfts := List.push<Nft>(nft, allNfts);
+      tokenEntries.put(to, Nat64.toNat(nft.tokenId));
       transactionId += 1;
-      // tokenEntries.put(tokenId, newToken);
-      // tokens.add(tokenId);
-      // ownerToTokens.put(to, tokens);
+      ignore updateMetadata(to, metadata);
       return #Ok({
         token_id = Nat64.fromNat(newId);
-        id = transactionId;
+        transactionId = transactionId;
       });
-
-        // assert(tokenEntries.get(tokenId) == null); // token must not exist
-        // let newToken : Token = {
-        //     id = tokenId;
-        //     metadata = metadata;
-        //     owner = to;
-        // };
-        
-        // tokenEntries.put(tokenId, newToken);
-        // let tokens = switch(ownerToTokens.get(to)) {
-        //     case null Buffer.Buffer<TokenId>(0);
-        //     case (?tokens) tokens;
-        // };
-        // tokens.add(tokenId);
-        // ownerToTokens.put(to, tokens);
-        // allNfts.add()
     };
 
-    // public func transfer(to: AccountId, tokenId: TokenId) : () {
-    //     assert(tokenEntries.contains(tokenId)); // TODO return error on token must exist
+  public func updateMetadata(user : Principal, metadata: Metadata) : async (Principal, ?Metadata) { 
+    let tokenId : TokenId = switch (tokenEntries.get(user)) {
+      case (?nft) nft;
+      case null 0 ;      
+    };
 
-    //     let token = switch(tokenEntries.get(tokenId)) {
-    //         case (?token) token;
-    //         case null assert(false); // TODO return err on token doesn't exist
-    //     };
+    metadataMap.put(tokenId, metadata);
 
-    //     let prevOwner : Principal = token.owner;
+    // History
 
-    //     tokenEntries.put(tokenId, {
-    //         id = tokenId;
-    //         metadata = token.metadata;
-    //         owner = to; 
-    //     });
+    let newLog = {
+    timestamp = Time.now();
+    metadata = metadata; 
+    };
 
-    //     // Update previous owner's tokens
-    //     let prevTokens = switch(ownerToTokens.get(prevOwner)) {
-    //         case (?tokens) {
-    //                       let t : Buffer.Buffer<TokenId> = tokens;
-    //                       t;};
-    //         case null assert(false); // owner doesn't exist
-    //     };
-        
-    //     let newPrevTokens = prevTokens.remove(tokenId);
-    //     ownerToTokens.put(prevOwner, newPrevTokens);
+    let newBuffer = Buffer.Buffer<MetadataLog>(0);
+    newBuffer.add(newLog);
 
-    //     // Update new owner's tokens
-    //     let newTokens = switch(ownerToTokens.get(to)) {
-    //         case null Buffer.Buffer<TokenId>([]);
-    //         case (?tokens) tokens;
-    //     };
-    //     Buffer.append<TokenId>(newTokens, [tokenId]);
-    //     ownerToTokens.put(to, newTokens);
-    // };
+    switch(historyMap.get(tokenId)) {
+      
+      case (?existing) {
+        existing.add(newLog);
+        historyMap.put(tokenId, existing);
+      };
+      case (null) {
+        historyMap.put(tokenId, newBuffer);
+      };
+    };
+    
+    transactionId += 1;
 
-    // public func balanceOf(owner: AccountId) : async Nat {
-    //     switch(ownerToTokens.get(owner)) {
-    //         case null 0;
-    //         case (?tokens) tokens.size();
-    //     }
-    // };
-
-    // public func ownerOf(tokenId: TokenId) : async AccountId {
-    //     switch(tokenEntries.get(tokenId)) {
-    //         case (?token) token.owner;
-    //         case null Principal.fromText("aaaaa-aa"); // TODO return err on token doesn't exist
-    //     }
-    // };
-
-  //   public func getToken(tokenId: TokenId) : async ?Token {
-  //       tokenEntries.get(tokenId);
-  //   };
-
-  // public func getTokens(start: Nat, limit: Nat) : async [Token] {
-  //   var tokens = Buffer.Buffer<Token>(0);
-  //   var i = start;
-
-  //   while(i < start + limit and tokenEntries.size() > i) {
-  //       switch(tokenEntries.get(i)) {
-  //           case (?token) {
-  //               tokens.add(token);
-  //           };
-  //           case _ {}
-  //       };
-  //       i += 1;
-  //   };
-
-//     return Buffer.toArray<Token>(tokens);
-// };
-
-  public query func balanceOf(user : Principal) : async [Nft] {
-    let userNfts = List.filter(allNfts, func(nft: Nft) : Bool {
-        nft.owner == user
-    });
-    List.toArray(userNfts);
+    (user, metadataMap.get(tokenId));
   };
 
-  func approve(to: AccountId, tokenId: TokenId) : () {
-    // approve logic
+  public query func currentNft(user : Principal) : async Nft {
+    let token = switch (tokenEntries.get(user)) {
+      case null 0;
+      case (?t) t;
+    };
+
+    let metadata = switch (metadataMap.get(token)) {      
+      case (?meta) meta;
+      case null {[]};
+    };
+
+    let nft: Types.Nft = {
+      owner = user;
+      tokenId = Nat64.fromNat(token);
+      metadata = metadata;      
+    };      
+  }; 
+
+  public query func getAllTokenIds() : async [(Principal, TokenId)] {
+    Iter.toArray(tokenEntries.entries());
   };
 
-  // internal functions
+  public query func getAllMetadata() : async [(TokenId, Metadata)] {
+    Iter.toArray(metadataMap.entries());
+  };
 
-  // func authorized(owner: ICRC.AccountId, tokenId: ICRC.TokenId) : Bool {
-    // switch(tokenEntries.get(tokenId)) {
-    //   case null { false };
-    //   case (?token) { token.owner == owner }; 
-    // }
-  // };
-  
+   public query func getFullHistory() : async [(TokenId, [MetadataLog])] {
+
+    var newBuffer = Buffer.Buffer<(TokenId, MetadataHistory)>(historyMap.size());
+    for ((tokenId, metadataLogBuffer) in historyMap.entries()) {
+      newBuffer.add((tokenId, Buffer.toArray(metadataLogBuffer)));
+    };
+    Buffer.toArray(newBuffer);
+  };
+
+  public query func getHistoryByTokenId(tokenId : TokenId) : async (TokenId, [MetadataLog]) {
+    switch (historyMap.get(tokenId)) {
+      case null (tokenId, []);
+      case (?log) (tokenId, Buffer.toArray<MetadataLog>(log));
+    };
+  };
+
+  system func preupgrade() {
+    nftEntries := Iter.toArray(tokenEntries.entries());
+    metadataEntries := Iter.toArray(metadataMap.entries());
+    historyEntries := [];
+    var newBuffer = Buffer.Buffer<(TokenId, MetadataHistory)>(historyMap.size());
+    for ((tokenId, metadataLogBuffer) in historyMap.entries()) {
+      newBuffer.add((tokenId, Buffer.toArray(metadataLogBuffer)));
+    };
+    historyEntries := Buffer.toArray(newBuffer);
+  };
+
+  system func postupgrade() {
+    for ((user, nft) in nftEntries.vals()) {
+      tokenEntries.put(user, nft);
+    };
+    nftEntries := [];
+
+    if (metadataMap.size() < 1)
+      for ((tokenId, metadata) in metadataEntries.vals()) {
+        metadataMap.put(tokenId, metadata);
+      };
+    metadataEntries := [];
+
+    for ((tokenID, history) in historyEntries.vals()) {
+      let arr : [MetadataLog] = history;
+      let log : Buffer.Buffer<MetadataLog> = Buffer.fromArray<MetadataLog>(arr);
+      historyMap.put(tokenID, log);
+    };
+
+    historyEntries := [];
+  }; 
 }

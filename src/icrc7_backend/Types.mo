@@ -50,7 +50,7 @@ module {
 
   public type Nft = {
     owner: Principal;
-    id: TokenId;
+    tokenId: TokenId;
     metadata: MetadataDesc;
   };
 
@@ -90,9 +90,9 @@ module {
   public type MetadataDesc = [MetadataPart];
 
   public type MetadataPart = {
-    purpose: MetadataPurpose;
+    // purpose: MetadataPurpose;
     key_val_data: [MetadataKeyVal];
-    data: Blob;
+    // data: Blob;
   };
 
   public type MetadataPurpose = {
@@ -121,7 +121,7 @@ module {
 
   public type MintReceiptPart = {
     token_id: TokenId;
-    id: Nat;
+    transactionId: Nat;
   };
 
   public type ReputationBalance = {
