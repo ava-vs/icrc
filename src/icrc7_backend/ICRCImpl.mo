@@ -13,82 +13,27 @@ import Nat64 "mo:base/Nat64";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
 import Time "mo:base/Time";
+import Icrc7 "ICRC7";
 
 actor IC_ICRC7 {
     type Token = ICRC.Token;
     type TokenId = ICRC.TokenId;
     type AccountId = ICRC.AccountId;
-    type Metadata = MetadataDesc;
-    public type Result<S, E> = {
-    #Ok : S;
-    #Err : E;
-  };
-  public type ApiError = {
-    #Unauthorized;
-    #InvalidTokenId;
-    #ZeroAddress;
-    #NoNFT;
-    #Other;
-  };
-  type Nft = Types.Nft;
+    type Metadata = ICRC.Metadata;
+    type Collection = ICRC.Collection;
+    type CollectionMetadata = ICRC.CollectionMetadata;
 
-  public type NftResult = Result<Types.Nft, ApiError>;
-  
-  public type ExtendedMetadataResult = Result<{
-    metadata_desc: MetadataDesc;
-    token_id: TokenId;
-  }, ApiError>;
+    type MetadataHistory = Types.MetadataHistory;
+    type MetadataLog = Types.MetadataLog;
 
-  public type MetadataResult = Result<MetadataDesc, ApiError>;
-
-  public type MetadataDesc = [MetadataPart];
-
-  public type MetadataLog = {
-    timestamp: Time.Time;
-    metadata: MetadataDesc; 
-  };
-
-  public type MetadataHistory = [MetadataLog];
-
-  public type MetadataPart = {
-    // purpose: MetadataPurpose;
-    key_val_data: [MetadataKeyVal];
-    // data: Blob;
-  };
-  
-  public type MetadataKeyVal = {
-    key: Text;
-    val: MetadataVal;
-  };
-
-  public type MetadataVal = {
-    #LinkContent: Text;
-  };
-
-  public type MintReceipt = Result<MintReceiptPart, ApiError>;
-
-  public type MintReceiptPart = {
-    token_id: TokenId;
-    transactionId: Nat;
-  };
-
-  public type TxReceipt = Result<Nat, ApiError>;
-  
-  public type TransactionId = Nat;
-
-  type DNft = {
-    owner: Principal;
-    tokenId: TokenId;
-    metadata: MetadataDesc;
-  };
 
     // state
     let equalTokenId = func (a: TokenId, b: TokenId): Bool { a == b };
     let hashTokenId = func (id: TokenId): Hash.Hash { Nat32.fromNat(id) };
 
-    stable var transactionId: TransactionId = 0;
+    stable var transactionId: Types.TransactionId = 0;
 
-    stable var allCollections = List.nil<Types.Collection>();
+    stable var allCollections = List.nil<ICRC.Collection>();
 
     stable var nftEntries : [(Principal, TokenId)] = [];
 
@@ -106,12 +51,12 @@ actor IC_ICRC7 {
 
     // implement ICRC-7 methods
 
-    public func createCollection(to: AccountId, metadata: ICRC.Icrc7_collection_metadata) : async Types.Collection {
-      let defaultMetadata : Types.CollectionMetadata = {
+    public func createCollection(to: AccountId, metadata: ICRC.Icrc7_collection_metadata) : async Collection {
+      let defaultMetadata : CollectionMetadata = {
         icrc7_name: Text = "icrc7_name";
         icrc7_symbol: Text = "icrc7_symbol";
         icrc7_royalties: ?Nat16 = ?0;
-        icrc7_royalty_recipient: ?Types.Account = ?{ owner = Principal.fromText("aaaaa-aa"); subaccount = ?"0"};
+        icrc7_royalty_recipient: ?ICRC.Account = ?{ owner = Principal.fromText("aaaaa-aa"); subaccount = ?"0"};
         icrc7_description: ?Text = ?"icrc7_description";
         icrc7_image: ?Blob = ?"img";
         icrc7_total_supply: Nat = 1;
@@ -120,30 +65,30 @@ actor IC_ICRC7 {
       mintCollection(to, metadata);
     };
 
-    func mintCollection(to: Principal, metadata: ICRC.Icrc7_collection_metadata) : Types.Collection {
+    func mintCollection(to: Principal, metadata: ICRC.Icrc7_collection_metadata) : Collection {
       let newId : Nat = List.size(allCollections);
-      let collection: Types.Collection = {
+      let collection: Collection = {
         owner = to;
         metadata = metadata;
         id = newId;
       };
-      allCollections := List.push<Types.Collection>(collection, allCollections);
+      allCollections := List.push<Collection>(collection, allCollections);
       collection;
     };
 
     public func mint(to: AccountId, metadata: Metadata) : async Types.MintReceipt {
       let newId : TokenId = tokenEntries.size();
-      let nft: Types.Nft = {
+      let nft: Types.DNft = {
         owner = to;
-        tokenId = Nat64.fromNat(newId);
+        id = newId;
         metadata = metadata;
         tokenType = GLOBAL_TOKEN_SYMBOL;
       };
-      tokenEntries.put(to, Nat64.toNat(nft.tokenId));
+      tokenEntries.put(to, nft.id);
       transactionId += 1;
       ignore updateMetadata(to, metadata);
       return #Ok({
-        token_id = Nat64.fromNat(newId);
+        token_id = newId;
         transactionId = transactionId;
       });
     };
@@ -182,7 +127,7 @@ actor IC_ICRC7 {
     (user, metadataMap.get(tokenId));
   };
 
-  public query func currentNft(user : Principal) : async Nft {
+  public query func currentNft(user : Principal) : async Types.DNft {
     let token = switch (tokenEntries.get(user)) {
       case null 0;
       case (?t) t;
@@ -193,9 +138,9 @@ actor IC_ICRC7 {
       case null {[]};
     };
 
-    let nft: Types.Nft = {
+    let nft: Types.DNft = {
       owner = user;
-      tokenId = Nat64.fromNat(token);
+      id = token;
       metadata = metadata;      
     };      
   }; 
