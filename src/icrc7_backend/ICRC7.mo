@@ -1,9 +1,9 @@
-import HashMap "mo:base/HashMap";
-import Principal "mo:base/Principal";
 import Array "mo:base/Array";
-import Nat "mo:base/Nat";
 import Hash "mo:base/Hash";
+import HashMap "mo:base/HashMap";
+import Nat "mo:base/Nat";
 import Nat32 "mo:base/Nat32";
+import Principal "mo:base/Principal";
 
 module ICRC7 = {
 
@@ -14,8 +14,8 @@ module ICRC7 = {
   public type Metadata = [MetadataPart];
 
   public type MetadataPart = {
-      #TextContent: Text;
-      #LinkContent: Text;
+    #TextContent: Text;
+    #LinkContent: Text;
     };
 
   public type Token = {
@@ -90,7 +90,6 @@ module ICRC7 = {
     #TemporarilyUnavailable;
     #GenericError : { error_code: Nat; message: Text };
   };
-
 };
 
 

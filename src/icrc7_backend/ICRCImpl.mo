@@ -1,18 +1,19 @@
-import ICRC "ICRC7";
-import Nat "mo:base/Nat";
-import Text "mo:base/Text";
-import Principal "mo:base/Principal";
-import TrieMap "mo:base/TrieMap";
-import Hash "mo:base/Hash";
-import Buffer "mo:base/Buffer";
-import Nat32 "mo:base/Nat32";
 import Array "mo:base/Array";
-import List "mo:base/List";
-import Types "./Types";
-import Nat64 "mo:base/Nat64";
+import Buffer "mo:base/Buffer";
+import Hash "mo:base/Hash";
 import HashMap "mo:base/HashMap";
 import Iter "mo:base/Iter";
+import List "mo:base/List";
+import Nat "mo:base/Nat";
+import Nat32 "mo:base/Nat32";
+import Nat64 "mo:base/Nat64";
+import Principal "mo:base/Principal";
+import Text "mo:base/Text";
 import Time "mo:base/Time";
+import TrieMap "mo:base/TrieMap";
+
+import Types "./Types";
+import ICRC "ICRC7";
 import Icrc7 "ICRC7";
 
 actor IC_ICRC7 {
@@ -20,6 +21,7 @@ actor IC_ICRC7 {
     type TokenId = ICRC.TokenId;
     type AccountId = ICRC.AccountId;
     type Metadata = ICRC.Metadata;
+    type MetadataPart = ICRC.MetadataPart;
     type Collection = ICRC.Collection;
     type CollectionMetadata = ICRC.CollectionMetadata;
 
@@ -86,50 +88,97 @@ actor IC_ICRC7 {
       };
       tokenEntries.put(to, nft.id);
       transactionId += 1;
-      ignore updateMetadata(to, metadata);
+      metadataMap.put(nft.id, metadata);
+      updateHistory(nft.id, metadata);
       return #Ok({
         token_id = newId;
         transactionId = transactionId;
       });
     };
-
-  public func updateMetadata(user : Principal, metadata: Metadata) : async (Principal, ?Metadata) { 
-    let tokenId : TokenId = switch (tokenEntries.get(user)) {
-      case (?nft) nft;
-      case null 0 ;      
-    };
-
-    metadataMap.put(tokenId, metadata);
-
-    // History
-
-    let newLog = {
-    timestamp = Time.now();
-    metadata = metadata; 
-    };
-
-    let newBuffer = Buffer.Buffer<MetadataLog>(0);
-    newBuffer.add(newLog);
-
-    switch(historyMap.get(tokenId)) {
-      
-      case (?existing) {
-        existing.add(newLog);
-        historyMap.put(tokenId, existing);
-      };
-      case (null) {
-        historyMap.put(tokenId, newBuffer);
-      };
-    };
     
-    transactionId += 1;
+    func updateHistory(tokenId : TokenId, metadata : Metadata) : (){
 
-    (user, metadataMap.get(tokenId));
+      let newLog = {
+        timestamp = Time.now();
+        metadata = metadata; 
+      };
+
+      let newBuffer = Buffer.Buffer<MetadataLog>(0);
+      newBuffer.add(newLog);
+
+      switch(historyMap.get(tokenId)) {
+        
+        case (?existing) {
+          existing.add(newLog);
+          historyMap.put(tokenId, existing);
+        };
+        case (null) {
+          historyMap.put(tokenId, newBuffer);
+        };
+      };
+    };
+
+  public func updateMetadata(user : Principal, metadata: Metadata) : async (Principal, ?Metadata) {
+        var tokenId = 0;
+        switch (tokenEntries.get(user)) {
+          case (?token) { 
+            tokenId := token;    
+            switch (metadataMap.get(token)) {
+              case null { 
+              };
+              case (?prevMetadata) {
+
+                  var updatedMetadata = Array.thaw<MetadataPart>(prevMetadata);
+                  var up : [MetadataPart] = prevMetadata;
+                  for (newPart in metadata.vals()) {
+                    var replaced = false;
+                    for (i in Iter.range(0, prevMetadata.size() - 1)) {
+                      if (metadataPartsEqual(newPart, updatedMetadata[i])) {
+                        updatedMetadata[i] := newPart;
+                        replaced := true;
+                      };
+                    };
+                    if (not replaced) {
+                      up := Array.append<MetadataPart>(prevMetadata, [newPart]); 
+                      updateHistory(token, metadata);
+                      metadataMap.put(token, up); 
+                    } else {
+                        updateHistory(token, metadata);
+                        metadataMap.put(token, Array.freeze(updatedMetadata));
+                    };
+                  };                 
+                };
+              };            
+          return (user, metadataMap.get(token));
+        };
+        case null {}; 
+        };             
+        transactionId += 1;
+        (user, metadataMap.get(tokenId));
   };
 
-  public query func currentNft(user : Principal) : async Types.DNft {
+/*
+  When expanding the metadata composition, add cases to this method 
+*/
+
+  func metadataPartsEqual(a : MetadataPart, b : MetadataPart) : Bool {
+
+    switch (a, b) {
+      case (#TextContent(_), #TextContent(_)) {
+        return true; 
+      };
+      case (#LinkContent(_), #LinkContent(_)) {
+        return true;
+      };
+      case _ {
+        return false;
+      };
+    }
+  };
+
+  public query func currentNft(user : Principal) : async Types.DNftResult {
     let token = switch (tokenEntries.get(user)) {
-      case null 0;
+      case null return #Err(#NoDNFT);
       case (?t) t;
     };
 
@@ -142,11 +191,16 @@ actor IC_ICRC7 {
       owner = user;
       id = token;
       metadata = metadata;      
-    };      
+    };  
+    #Ok(nft);
   }; 
 
   public query func getAllTokenIds() : async [(Principal, TokenId)] {
     Iter.toArray(tokenEntries.entries());
+  };
+
+  public query func getCollections() : async [Collection] {
+    List.toArray(allCollections);
   };
 
   public query func getAllMetadata() : async [(TokenId, Metadata)] {

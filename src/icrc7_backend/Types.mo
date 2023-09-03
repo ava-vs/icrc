@@ -1,6 +1,7 @@
 import Nat "mo:base/Nat";
 import Principal "mo:base/Principal";
 import Time "mo:base/Time";
+
 import ICRC7 "./ICRC7";
 
 module {
@@ -16,11 +17,11 @@ module {
     #Unauthorized;
     #InvalidTokenId;
     #ZeroAddress;
-    #NoNFT;
+    #NoDNFT;
     #Other;
   };
 
-  public type NftResult = Result<DNft, ApiError>;
+  public type DNftResult = Result<DNft, ApiError>;
 
   public type MetadataResult = Result<Metadata, ApiError>;
 
