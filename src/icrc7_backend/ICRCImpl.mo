@@ -78,10 +78,11 @@ actor IC_ICRC7 {
     collection;
   };
 
-  public func addTokenToCollection(collectionId: CollectionId, tokenId: TokenId) : async Bool {    
+  public func addTokenToCollection(user: Principal, collectionId: CollectionId, tokenId: TokenId) : async Bool {    
 
     //TODO add a check for ownership and whether the tokenId exists and does not belong to another collection
-
+    if (not checkOwnership(user, collectionId, tokenId)) return false;
+    
     let fixedCollectionEntries = Array.freeze<(CollectionId, [TokenId])>(collectionEntries);
 
     let idx = Array.find<(CollectionId, [TokenId])>(fixedCollectionEntries, func (i, entry: [TokenId]) : Bool { i == collectionId });
@@ -100,6 +101,24 @@ actor IC_ICRC7 {
         true;
       };
     };
+  };
+
+  func checkOwnership(user: Principal, collectionId: CollectionId, tokenId: TokenId): Bool {
+   
+    let collection = 
+      List.find(allCollections, func (c : Collection) : Bool { c.id == collectionId and c.owner == user} );
+    let collectionCheck = switch (collection) {
+      case null return false;
+      case (_) true;
+    };
+    let token = switch (tokenEntries.get(user)) {
+      case null return false;
+      // check for dNFT only!!!!!
+      case (?t) t == tokenId;
+    };  
+    // Add additional validation, such as whether the token is part of another collection.
+    if (token and collectionCheck) return true;
+    false;
   };
 
   public query func getCollectionTokens(collectionId: CollectionId) : async ?(CollectionId, [TokenId]) {
