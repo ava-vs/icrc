@@ -17,106 +17,135 @@ import ICRC "ICRC7";
 import Icrc7 "ICRC7";
 
 actor IC_ICRC7 {
-    type Token = ICRC.Token;
-    type TokenId = ICRC.TokenId;
-    type AccountId = ICRC.AccountId;
-    type Metadata = ICRC.Metadata;
-    type MetadataPart = ICRC.MetadataPart;
-    type Collection = ICRC.Collection;
-    type CollectionMetadata = ICRC.CollectionMetadata;
+  type Token = ICRC.Token;
+  type TokenId = ICRC.TokenId;
+  type AccountId = ICRC.AccountId;
+  type Metadata = ICRC.Metadata;
+  type MetadataPart = ICRC.MetadataPart;
+  type CollectionId = ICRC.CollectionId;
+  type Collection = ICRC.Collection;
+  type CollectionMetadata = ICRC.CollectionMetadata;
 
-    type MetadataHistory = Types.MetadataHistory;
-    type MetadataLog = Types.MetadataLog;
+  type MetadataHistory = Types.MetadataHistory;
+  type MetadataLog = Types.MetadataLog;
 
 
-    // state
-    let equalTokenId = func (a: TokenId, b: TokenId): Bool { a == b };
-    let hashTokenId = func (id: TokenId): Hash.Hash { Nat32.fromNat(id) };
+  // state
+  let equalTokenId = func (a: TokenId, b: TokenId): Bool { a == b };
+  let hashTokenId = func (id: TokenId): Hash.Hash { Nat32.fromNat(id) };
 
-    stable var transactionId: Types.TransactionId = 0;
+  stable var transactionId: Types.TransactionId = 0;
 
-    stable var allCollections = List.nil<ICRC.Collection>();
+  stable var allCollections = List.nil<ICRC.Collection>();
 
-    stable var nftEntries : [(Principal, TokenId)] = [];
+  stable var nftEntries : [(Principal, TokenId)] = [];
+  stable var metadataEntries : [(TokenId, Metadata)] = [];
+  stable var historyEntries : [(TokenId, MetadataHistory)] = [];
+  stable var collectionEntries: [var (CollectionId, [TokenId])] = Array.thaw([]);
 
-    var tokenEntries = TrieMap.TrieMap<Principal, TokenId>(Principal.equal, Principal.hash);
+  var tokenEntries = TrieMap.TrieMap<Principal, TokenId>(Principal.equal, Principal.hash);    
 
-    stable var metadataEntries : [(TokenId, Metadata)] = [];
+  var metadataMap = HashMap.fromIter<TokenId, Metadata>(metadataEntries.vals(), 1, Nat.equal, hashTokenId);
 
-    var metadataMap = HashMap.fromIter<TokenId, Metadata>(metadataEntries.vals(), 1, Nat.equal, hashTokenId);
+  var historyMap = HashMap.HashMap<TokenId, Buffer.Buffer<MetadataLog>>(0, Nat.equal, hashTokenId);
+
+  let GLOBAL_TOKEN_SYMBOL = "IC7D";
+
+  // implement ICRC-7 methods
+
+  public func createCollection(to: AccountId, metadata: ICRC.Icrc7_collection_metadata) : async Collection {
+    let defaultMetadata : CollectionMetadata = {
+      icrc7_name: Text = "icrc7_name";
+      icrc7_symbol: Text = "icrc7_symbol";
+      icrc7_royalties: ?Nat16 = ?0;
+      icrc7_royalty_recipient: ?ICRC.Account = ?{ owner = Principal.fromText("aaaaa-aa"); subaccount = ?"0"};
+      icrc7_description: ?Text = ?"icrc7_description";
+      icrc7_image: ?Blob = ?"img";
+      icrc7_total_supply: Nat = 1;
+      icrc7_supply_cap: ?Nat = ?1000;
+    };
+    mintCollection(to, metadata);
+  };
+
+  func mintCollection(to: Principal, metadata: ICRC.Icrc7_collection_metadata) : Collection {
+    let newId : Nat = List.size(allCollections);
+    let collection: Collection = {
+      owner = to;
+      metadata = metadata;
+      id = newId;
+    };
+    allCollections := List.push<Collection>(collection, allCollections);     
+    collection;
+  };
+
+  public func addTokenToCollection(collectionId: CollectionId, tokenId: TokenId) : async Bool {    
+
+    //TODO add a check for ownership and whether the tokenId exists and does not belong to another collection
+
+    let fixedCollectionEntries = Array.freeze<(CollectionId, [TokenId])>(collectionEntries);
+
+    let idx = Array.find<(CollectionId, [TokenId])>(fixedCollectionEntries, func (i, entry: [TokenId]) : Bool { i == collectionId });
+
+    switch (idx) {
+      case (null) {
+        // If the collection is empty, create a new array and add the tokenId.
+        let newTokenArray : (CollectionId, [TokenId]) = (collectionId, [tokenId]);
+        collectionEntries := Array.init<(CollectionId, [TokenId])>(1, newTokenArray);
+        true;
+      };
+      case (?(i, existingEntry)) {
+        // If the collection exists, append the new tokenId.
+        let tokenIds : [TokenId] = Array.append<TokenId>(existingEntry, [tokenId]);
+        collectionEntries[collectionId] := (collectionId, tokenIds);
+        true;
+      };
+    };
+  };
+
+  public query func getCollectionTokens(collectionId: CollectionId) : async ?(CollectionId, [TokenId]) {
+    let fixedCollectionEntries = Array.freeze<(CollectionId, [TokenId])>(collectionEntries);
+    Array.find<(CollectionId, [TokenId])>(fixedCollectionEntries, func (i, entry: [TokenId]) : Bool { i == collectionId });
+  };
+
+  public func mint(to: AccountId, metadata: Metadata) : async Types.MintReceipt {
+    let newId : TokenId = tokenEntries.size();
+    let nft: Types.DNft = {
+      owner = to;
+      id = newId;
+      metadata = metadata;
+      tokenType = GLOBAL_TOKEN_SYMBOL;
+    };
+    tokenEntries.put(to, nft.id);
+    transactionId += 1;
+    metadataMap.put(nft.id, metadata);
+    updateHistory(nft.id, metadata);
+    return #Ok({
+      token_id = newId;
+      transactionId = transactionId;
+    });
+  };
     
-    stable var historyEntries : [(TokenId, MetadataHistory)] = [];
+  func updateHistory(tokenId : TokenId, metadata : Metadata) : (){
 
-    var historyMap = HashMap.HashMap<TokenId, Buffer.Buffer<MetadataLog>>(0, Nat.equal, hashTokenId);
-
-    let GLOBAL_TOKEN_SYMBOL = "IC7D";
-
-    // implement ICRC-7 methods
-
-    public func createCollection(to: AccountId, metadata: ICRC.Icrc7_collection_metadata) : async Collection {
-      let defaultMetadata : CollectionMetadata = {
-        icrc7_name: Text = "icrc7_name";
-        icrc7_symbol: Text = "icrc7_symbol";
-        icrc7_royalties: ?Nat16 = ?0;
-        icrc7_royalty_recipient: ?ICRC.Account = ?{ owner = Principal.fromText("aaaaa-aa"); subaccount = ?"0"};
-        icrc7_description: ?Text = ?"icrc7_description";
-        icrc7_image: ?Blob = ?"img";
-        icrc7_total_supply: Nat = 1;
-        icrc7_supply_cap: ?Nat = ?1000;
-      };
-      mintCollection(to, metadata);
+    let newLog = {
+      timestamp = Time.now();
+      metadata = metadata; 
     };
 
-    func mintCollection(to: Principal, metadata: ICRC.Icrc7_collection_metadata) : Collection {
-      let newId : Nat = List.size(allCollections);
-      let collection: Collection = {
-        owner = to;
-        metadata = metadata;
-        id = newId;
+    let newBuffer = Buffer.Buffer<MetadataLog>(0);
+    newBuffer.add(newLog);
+
+    switch(historyMap.get(tokenId)) {
+      
+      case (?existing) {
+        existing.add(newLog);
+        historyMap.put(tokenId, existing);
       };
-      allCollections := List.push<Collection>(collection, allCollections);
-      collection;
-    };
-
-    public func mint(to: AccountId, metadata: Metadata) : async Types.MintReceipt {
-      let newId : TokenId = tokenEntries.size();
-      let nft: Types.DNft = {
-        owner = to;
-        id = newId;
-        metadata = metadata;
-        tokenType = GLOBAL_TOKEN_SYMBOL;
-      };
-      tokenEntries.put(to, nft.id);
-      transactionId += 1;
-      metadataMap.put(nft.id, metadata);
-      updateHistory(nft.id, metadata);
-      return #Ok({
-        token_id = newId;
-        transactionId = transactionId;
-      });
-    };
-    
-    func updateHistory(tokenId : TokenId, metadata : Metadata) : (){
-
-      let newLog = {
-        timestamp = Time.now();
-        metadata = metadata; 
-      };
-
-      let newBuffer = Buffer.Buffer<MetadataLog>(0);
-      newBuffer.add(newLog);
-
-      switch(historyMap.get(tokenId)) {
-        
-        case (?existing) {
-          existing.add(newLog);
-          historyMap.put(tokenId, existing);
-        };
-        case (null) {
-          historyMap.put(tokenId, newBuffer);
-        };
+      case (null) {
+        historyMap.put(tokenId, newBuffer);
       };
     };
+  };
 
   public func updateMetadata(user : Principal, metadata: Metadata) : async (Principal, ?Metadata) {
         var tokenId = 0;

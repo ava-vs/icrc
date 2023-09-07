@@ -11,6 +11,8 @@ module ICRC7 = {
 
   public type TokenId = Nat;
 
+  public type CollectionId = Nat;
+
   public type Metadata = [MetadataPart];
 
   public type MetadataPart = {
